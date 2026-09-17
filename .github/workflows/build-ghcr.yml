@@ -70,19 +70,21 @@ jobs:
             rks:application/octet-stream
           echo "Pushed $REPO:$TAG (rkl, rks)"
 
-      - name: Publish GitHub Release with binaries
+      - name: Prepare release assets
         working-directory: ./build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ inputs.version }}-linux-amd64"
           cp rkl rkl-linux-amd64
           cp rks rks-linux-amd64
           sha256sum rkl-linux-amd64 rks-linux-amd64 > SHA256SUMS.txt
-          gh release delete "$TAG" --repo "${{ github.repository }}" --yes --cleanup-tag || true
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "rk8s ${{ inputs.version }} (rkl+rks, linux/amd64)" \
-            --notes "Prebuilt rkl + rks for linux/amd64, built with -C strip=symbols from ${{ inputs.version }}." \
-            rkl-linux-amd64 rks-linux-amd64 SHA256SUMS.txt
-          echo "Release $TAG published"
+          ls -lh
+
+      - name: Publish GitHub Release with binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}-linux-amd64
+          name: rk8s ${{ inputs.version }} (rkl+rks, linux/amd64)
+          body: Prebuilt rkl + rks for linux/amd64, built with -C strip=symbols from ${{ inputs.version }}.
+          files: |
+            build/rkl-linux-amd64
+            build/rks-linux-amd64
+            build/SHA256SUMS.txt
