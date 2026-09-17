@@ -1,0 +1,71 @@
+name: Build rk8s (rkl+rks) to GHCR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Git ref/tag to build'
+        default: 'v0.1.3'
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang lld pkg-config protobuf-compiler zstd
+          sudo apt-get install -y seccomp libseccomp-dev libpython3-dev openssl libssl-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            project/target
+          key: ${{ runner.os }}-cargo-rkl-rks-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build binaries (rkl + rks)
+        working-directory: ./project
+        run: |
+          RUSTFLAGS="-C strip=symbols" cargo build --release \
+            --target x86_64-unknown-linux-gnu -p rkl -p rks
+          mkdir -p ../build
+          cp target/x86_64-unknown-linux-gnu/release/rkl ../build/rkl
+          cp target/x86_64-unknown-linux-gnu/release/rks ../build/rks
+          chmod +x ../build/rkl ../build/rks
+          echo "== built binaries =="
+          ls -lh ../build
+
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Push binaries to GHCR
+        working-directory: ./build
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            oras login ghcr.io -u ${{ github.actor }} --password-stdin
+          REPO="ghcr.io/${{ github.repository_owner }}/rk8s"
+          TAG="${{ inputs.version }}-linux-amd64"
+          oras push "$REPO:$TAG" \
+            --artifact-type application/vnd.rk8s.binaries \
+            rkl:application/octet-stream \
+            rks:application/octet-stream
+          echo "Pushed $REPO:$TAG (rkl, rks)"
